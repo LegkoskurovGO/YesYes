@@ -6,17 +6,6 @@ import datetime
 from catboost import CatBoostClassifier
 from sklearn.model_selection import train_test_split
 
-def compose_date(years, months=1, days=1, weeks=None, hours=None, minutes=None,seconds=None):
-    years = np.asarray(years) - 1970
-    months = np.asarray(months) - 1
-    days = np.asarray(days) - 1
-    types = ('<M8[Y]', '<m8[M]', '<m8[D]', '<m8[W]', '<m8[h]',
-            '<m8[m]', '<m8[s]', '<m8[ms]', '<m8[us]', '<m8[ns]')
-    vals = (years, months, days, weeks, hours, minutes, seconds)
-    return sum(np.asarray(v, dtype=t) for t, v in zip(types, vals)
-if v is not None)
-
-
 # Читаем данные транзакций
 data = pd.read_csv('transactions.csv',
                    sep=',',
@@ -41,15 +30,6 @@ day_time['day'] = day_time['day'].astype(int)
 # Стратовая дата
 start_date = datetime.datetime(2020, 3, 8, 0, 0, 0) - datetime.timedelta(219)
 
-# # Приведение данных к использованию функции
-# year = 2019 + day_time['day'] // 365
-# day = day_time["day"] % 365
-# res_data = pd.concat([day_time['time'].str.split(':', n=2, expand=True), day, year], axis=1)
-# res_data.columns = ['hour', 'minute', 'second', 'day', 'year']
-
-# # Формирование правильной даты в datetime
-# abcdefg = compose_date(years=res_data['year'], days=res_data['day'], hours=res_data['hour'], minutes=res_data['minute'], seconds=res_data['second'])
-
 # Замена времени в исходном датасете с гендерами 
 trans_time = pd.Series(start_date + pd.to_timedelta(np.ceil(day_time['day']), unit="D"), name='trans_time')
 
@@ -58,6 +38,40 @@ trans_time = pd.Series(start_date + pd.to_timedelta(np.ceil(day_time['day']), un
 res['weekday'] = trans_time.dt.weekday
 # trans_time.dt.hour
 
+# Группировка MCC кодов
+cat_mcc = res["mcc_code"]
+cat_mcc.index = res['client_id']
+cat_mcc.name = 'mcc_describe'
+
+a = cat_mcc.mask((724 <= cat_mcc) & (cat_mcc < 1799), 1) \
+           .mask((1799 <= cat_mcc) & (cat_mcc < 2842) | (4900 <= cat_mcc) & (cat_mcc < 5200) | (5714 <= cat_mcc) & (cat_mcc < 5715) | (9702 <= cat_mcc) & (cat_mcc < 9752), 2) \
+           .mask((2842 <= cat_mcc) & (cat_mcc < 3299), 3) \
+           .mask((3299 <= cat_mcc) & (cat_mcc < 3441) | (7511 <= cat_mcc) & (cat_mcc < 7519), 4) \
+           .mask((3441 <= cat_mcc) & (cat_mcc < 3882) | (6760 <= cat_mcc) & (cat_mcc < 7011), 5) \
+           .mask((3882 <= cat_mcc) & (cat_mcc < 4789), 6) \
+           .mask((4789 <= cat_mcc) & (cat_mcc < 4900), 7) \
+           .mask((5200 <= cat_mcc) & (cat_mcc < 5499), 8) \
+           .mask((5499 <= cat_mcc) & (cat_mcc < 5599) | (5699 <= cat_mcc) & (cat_mcc < 5714) | (5969 <= cat_mcc) & (cat_mcc < 5999), 9) \
+           .mask((5599 <= cat_mcc) & (cat_mcc < 5699), 10) \
+           .mask((5715 <= cat_mcc) & (cat_mcc < 5735) | (5811 <= cat_mcc) & (cat_mcc < 5950), 11) \
+           .mask((5735 <= cat_mcc) & (cat_mcc < 5811) | (5999 <= cat_mcc) & (cat_mcc < 6760) | (5962 <= cat_mcc) & (cat_mcc < 5963) | (7011 <= cat_mcc) & (cat_mcc < 7033), 12) \
+           .mask((5950 <= cat_mcc) & (cat_mcc < 5962) | (5963 <= cat_mcc) & (cat_mcc < 5969), 13) \
+           .mask((7033 <= cat_mcc) & (cat_mcc < 7299), 14) \
+           .mask((7299 <= cat_mcc) & (cat_mcc < 7511) | (7519 <= cat_mcc) & (cat_mcc < 7523), 15) \
+           .mask((7523 <= cat_mcc) & (cat_mcc < 7699), 16) \
+           .mask((7699 <= cat_mcc) & (cat_mcc < 7999), 17) \
+           .mask((7999 <= cat_mcc) & (cat_mcc < 8351), 18) \
+           .mask((8351 <= cat_mcc) & (cat_mcc < 8699), 19) \
+           .mask((8699 <= cat_mcc) & (cat_mcc < 8999), 20) \
+           .mask((8999 <= cat_mcc) & (cat_mcc < 9702) | (9752 <= cat_mcc) & (cat_mcc < 9754), 21)
+
+res['mcc_describe'] = a.reset_index(drop=True)
+
+res['mcc_describe'] = res['mcc_describe'].astype(object)
+res['mcc_code'] = res.mcc_code.astype(object)
+res['trans_type'] = res.trans_type.astype(object)
+
+# Доходы / Расходы
 res['amount_up'] = res['amount'].where(res['amount'] >= 0)
 res['amount_down'] = res['amount'].where(res['amount'] <= 0).abs()
 
@@ -76,54 +90,20 @@ res = res.merge(aaa, how='outer', on='client_id')
 # Заработок - траты
 res['delta+-'] = res['amount_up_client_sum'] - res['amount_down_client_sum']
 
-# Группировка MCC кодов
-mcc = res[["mcc_code", 'client_id']]
-
-cat_mcc_dct = {
-    "Контрактные услуги": range(724, 1799),
-    "Оптовые поставщики и производители": [*range(1799, 2842),*range(4900, 5200), * range(5714, 5715), *range(9702, 9752)],
-    "Авиакомпании": range(2842, 3299),
-    "Аренда автомобилей": [*range(3299,3441),*range(7511, 7519)],
-    "Отели и мотели": [*range(3441,3882),*range(6760, 7011)],
-    "Транспорт": range(3882, 4789),
-    "Коммунальные и кабельные услуги": range(4789, 4900),
-    "Розничные магазины": range(5200, 5499),
-    "Автомобили и транспортные средства": [*range(5499, 5599), *range(5699, 5714), * range(5969, 5999)],
-    "Магазины одежды": range(5599, 5699),
-    "Различные магазины": [*range(5715, 5735), *range(5811, 5950)],
-    "Поставщик услуг": [*range(5735, 5811),*range(5999, 6760), * range(5962, 5963), * range(7011, 7033)],
-    "Продажи по почте/ телефону": [*range(5950,5962), *range(5963, 5969)],
-    "Личные услуги": range(7033, 7299),
-    "Бизнес услуги": [*range(7299, 7511), *range(7519, 7523)],
-    "Ремонтные услуги": range(7523, 7699),
-    "Развлечения": range(7699, 7999),
-    "Профессиональные услуги": range(7999, 8351),
-    "Членские организации": range(8351, 8699),
-    "Бизнес Услуги": range(8699, 8999),
-    "Государственные услуги": [*range(8999, 9702), *range(9752, 9754)],
-}
-
-cat_mcc = mcc.replace({'mcc_code': cat_mcc_dct.values()}, {'mcc_code': cat_mcc_dct.keys()})
-res["mcc_describe"] = cat_mcc["mcc_code"]
-res['mcc_code'] = res.mcc_code.astype(object)
-res['trans_type'] = res.trans_type.astype(object)
-
 # Характеристика по количетсву mcc_code
 tmp = res.groupby('client_id')['mcc_code'].nunique()
-tmp.name = 'type_mcc_code'
+tmp.name = 'count_mcc_code'
 res = res.merge(tmp, how='outer', on='client_id')
 
 # Характеристика по количетсву trans_type
 tmp = res.groupby('client_id')['trans_type'].nunique()
-tmp.name = 'type_trans_type'
+tmp.name = 'count_trans_type'
 res = res.merge(tmp, how='outer', on='client_id')
 
 # Характеристика по количетсву term_id
 tmp = res.groupby('client_id')['term_id'].nunique()
-tmp.name = 'type_term_id'
+tmp.name = 'count_term_id'
 res = res.merge(tmp, how='outer', on='client_id')
-
-res.drop(['amount', 'amount_up', 'amount_down', 'weekday', 'trans_time'], axis=1, inplace=True)
 
 # Частота покупок за время существования
 time_client = pd.concat([trans_time, res['client_id']], axis=1)
@@ -133,6 +113,8 @@ abcde = pd.DataFrame(res['client_id'].value_counts()).merge(abc['days'].dt.days,
 all_time_freq = abcde['days'] / abcde['count']
 all_time_freq.name = 'all_time_freq'
 res = res.merge(all_time_freq, on='client_id')
+
+res.drop(['amount', 'amount_up', 'amount_down', 'weekday', 'trans_time'], axis=1, inplace=True)
 
 res.info()
 from sklearn.model_selection import train_test_split
