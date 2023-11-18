@@ -64,8 +64,6 @@ res['weekday'] = trans_time.dt.weekday
 res['amount+'] = res['amount'].where(res['amount'] >= 0)
 res['amount-'] = res['amount'].where(res['amount'] <= 0).abs()
 
-# res.drop('amount', axis=1, inplace=True)
-
 # Характеристика по неделям для всех заработок и траты
 tmp = res.groupby('weekday').agg({'amount+': ['mean', 'median', 'std', 'count'], \
                                   'amount-': ['mean', 'median', 'std', 'count']})
@@ -88,5 +86,7 @@ tmp = res.groupby('client_id').agg({'amount+': 'sum', 'amount-': 'sum'}).add_suf
 res = res.merge(tmp, how='outer', on='client_id')
 
 res['delta+-'] = res['amount+_client_sum'] - res['amount-_client_sum']
+
+res.drop('amount', axis=1, inplace=True)
 
 print(res.info())
