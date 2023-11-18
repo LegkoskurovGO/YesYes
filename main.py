@@ -3,8 +3,8 @@ import numpy as np
 import matplotlib.pyplot as plt
 import seaborn as sns
 import datetime
-# import catboost
-
+from catboost import CatBoostClassifier
+from sklearn.model_selection import train_test_split
 
 def compose_date(years, months=1, days=1, weeks=None, hours=None, minutes=None,seconds=None):
     years = np.asarray(years) - 1970
@@ -135,3 +135,46 @@ all_time_freq.name = 'all_time_freq'
 res = res.merge(all_time_freq, on='client_id')
 
 res.info()
+from sklearn.model_selection import train_test_split
+X_train, X_validation, y_train, y_validation = train_test_split(res.drop(['gender', 'term_id', 'client_id'], axis=1), res['gender'],
+                                                                train_size=0.7, random_state=234)
+cat_features = ['mcc_code', 'trans_type', 'trans_city', 'mcc_describe']
+
+model = CatBoostClassifier(
+    iterations=500,
+    random_seed=63,
+    learning_rate=0.009,
+    custom_loss='AUC',
+    verbose=100
+)
+model.fit(
+    X_train, y_train,
+    cat_features=cat_features,
+    eval_set=(X_validation, y_validation),
+    plot=True
+)
+
+
+
+"""from catboost import cv
+from catboost import Pool
+
+params = {}
+params['loss_function'] = 'Logloss'
+params['iterations'] = 300
+params['custom_loss'] = 'AUC'
+params['random_seed'] = 63
+params['learning_rate'] = 0.01
+
+cv_data = cv(
+    params = params,
+    pool = Pool(res.drop(['gender', 'term_id', 'trans_time', 'client_id'], axis=1),
+    label=res['gender'],
+    cat_features=cat_features),
+    fold_count=5,
+    shuffle=True,
+    partition_random_seed=0,
+    plot=True,
+    stratified=True,
+    verbose=False
+)"""
