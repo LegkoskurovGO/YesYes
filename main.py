@@ -5,158 +5,203 @@ import seaborn as sns
 import datetime
 from catboost import CatBoostClassifier
 from sklearn.model_selection import train_test_split
+import os
+
+PATH_DATA = './data'
 
 # Читаем данные транзакций
-data = pd.read_csv('transactions.csv',
-                   sep=',',
-                   header=0,
-                   index_col=False)
+transactions = pd.read_csv(os.path.join(PATH_DATA, 'transactions.csv'),
+                           header=0,
+                           index_col=False)
+gender_train = pd.read_csv(os.path.join(PATH_DATA, 'train.csv'),
+                           header=0,
+                           index_col=0)
+gender_test = pd.read_csv(os.path.join(PATH_DATA, 'test.csv'),
+                          header=0,
+                          index_col=0)
+
 # Читаем данные полов
-genders = pd.read_csv('train.csv',
-                      sep=',',
-                      header=0,
-                      index_col=0)
+transactions_train = transactions.merge(gender_train, how='inner', on='client_id')
+transactions_test = transactions.merge(gender_test, how='inner', on='client_id')
 
-# Мёрджим
-res = data.merge(genders, how='inner', on='client_id')
-# Перевод из float в bool
-res['gender'] = res.gender.astype(bool)
+label = transactions_train['gender']
+transactions_train.drop('gender', axis=1, inplace=True)
 
-# Формируем дату 
-day_time = data['trans_time'].str.split(' ', n=1, expand=True)
-day_time.columns = ['day', 'time']
-day_time['day'] = day_time['day'].astype(int)
 
-# Стратовая дата
-start_date = datetime.datetime(2020, 3, 8, 0, 0, 0) - datetime.timedelta(219)
+def preprocessing_data(res: pd.DataFrame, data: pd.DataFrame) -> pd.DataFrame:
+    # Формируем дату
+    day_time = data['trans_time'].str.split(' ', n=1, expand=True)
+    day_time.columns = ['day', 'time']
+    day_time['day'] = day_time['day'].astype(int)
 
-# Замена времени в исходном датасете с гендерами 
-trans_time = pd.Series(start_date + pd.to_timedelta(np.ceil(day_time['day']), unit="D"), name='trans_time')
+    # Стратовая дата
+    start_date = datetime.datetime(2020, 3, 8, 0, 0, 0) - datetime.timedelta(219)
 
-# trans_time.dt.month
-# trans_time.dt.day
-res['weekday'] = trans_time.dt.weekday
-# trans_time.dt.hour
+    # Замена времени в исходном датасете с гендерами
+    trans_time = pd.Series(start_date + pd.to_timedelta(np.ceil(day_time['day']), unit="D"), name='trans_time')
+    # trans_time.index = res['client_id']
 
-# Группировка MCC кодов
-cat_mcc = res["mcc_code"]
-cat_mcc.index = res['client_id']
-cat_mcc.name = 'mcc_describe'
+    # trans_time.dt.month
+    # trans_time.dt.day
+    res['weekday'] = trans_time.dt.weekday
+    # trans_time.dt.hour
 
-a = cat_mcc.mask((724 <= cat_mcc) & (cat_mcc < 1799), 1) \
-           .mask((1799 <= cat_mcc) & (cat_mcc < 2842) | (4900 <= cat_mcc) & (cat_mcc < 5200) | (5714 <= cat_mcc) & (cat_mcc < 5715) | (9702 <= cat_mcc) & (cat_mcc < 9752), 2) \
-           .mask((2842 <= cat_mcc) & (cat_mcc < 3299), 3) \
-           .mask((3299 <= cat_mcc) & (cat_mcc < 3441) | (7511 <= cat_mcc) & (cat_mcc < 7519), 4) \
-           .mask((3441 <= cat_mcc) & (cat_mcc < 3882) | (6760 <= cat_mcc) & (cat_mcc < 7011), 5) \
-           .mask((3882 <= cat_mcc) & (cat_mcc < 4789), 6) \
-           .mask((4789 <= cat_mcc) & (cat_mcc < 4900), 7) \
-           .mask((5200 <= cat_mcc) & (cat_mcc < 5499), 8) \
-           .mask((5499 <= cat_mcc) & (cat_mcc < 5599) | (5699 <= cat_mcc) & (cat_mcc < 5714) | (5969 <= cat_mcc) & (cat_mcc < 5999), 9) \
-           .mask((5599 <= cat_mcc) & (cat_mcc < 5699), 10) \
-           .mask((5715 <= cat_mcc) & (cat_mcc < 5735) | (5811 <= cat_mcc) & (cat_mcc < 5950), 11) \
-           .mask((5735 <= cat_mcc) & (cat_mcc < 5811) | (5999 <= cat_mcc) & (cat_mcc < 6760) | (5962 <= cat_mcc) & (cat_mcc < 5963) | (7011 <= cat_mcc) & (cat_mcc < 7033), 12) \
-           .mask((5950 <= cat_mcc) & (cat_mcc < 5962) | (5963 <= cat_mcc) & (cat_mcc < 5969), 13) \
-           .mask((7033 <= cat_mcc) & (cat_mcc < 7299), 14) \
-           .mask((7299 <= cat_mcc) & (cat_mcc < 7511) | (7519 <= cat_mcc) & (cat_mcc < 7523), 15) \
-           .mask((7523 <= cat_mcc) & (cat_mcc < 7699), 16) \
-           .mask((7699 <= cat_mcc) & (cat_mcc < 7999), 17) \
-           .mask((7999 <= cat_mcc) & (cat_mcc < 8351), 18) \
-           .mask((8351 <= cat_mcc) & (cat_mcc < 8699), 19) \
-           .mask((8699 <= cat_mcc) & (cat_mcc < 8999), 20) \
-           .mask((8999 <= cat_mcc) & (cat_mcc < 9702) | (9752 <= cat_mcc) & (cat_mcc < 9754), 21)
+    cat_mcc = res["mcc_code"]
+    cat_mcc.index = res['client_id']
+    cat_mcc.name = 'mcc_describe'
 
-res['mcc_describe'] = a.reset_index(drop=True)
+    a = cat_mcc.mask((724 <= cat_mcc) & (cat_mcc < 1799), 1) \
+                .mask((1799 <= cat_mcc) & (cat_mcc < 2842) | (4900 <= cat_mcc) & (cat_mcc < 5200) | (5714 <= cat_mcc) & (cat_mcc < 5715) | (9702 <= cat_mcc) & (cat_mcc < 9752), 2) \
+                .mask((2842 <= cat_mcc) & (cat_mcc < 3299), 3) \
+                .mask((3299 <= cat_mcc) & (cat_mcc < 3441) | (7511 <= cat_mcc) & (cat_mcc < 7519), 4) \
+                .mask((3441 <= cat_mcc) & (cat_mcc < 3882) | (6760 <= cat_mcc) & (cat_mcc < 7011), 5) \
+                .mask((3882 <= cat_mcc) & (cat_mcc < 4789), 6) \
+                .mask((4789 <= cat_mcc) & (cat_mcc < 4900), 7) \
+                .mask((5200 <= cat_mcc) & (cat_mcc < 5499), 8) \
+                .mask((5499 <= cat_mcc) & (cat_mcc < 5599) | (5699 <= cat_mcc) & (cat_mcc < 5714) | (5969 <= cat_mcc) & (cat_mcc < 5999), 9) \
+                .mask((5599 <= cat_mcc) & (cat_mcc < 5699), 10) \
+                .mask((5715 <= cat_mcc) & (cat_mcc < 5735) | (5811 <= cat_mcc) & (cat_mcc < 5950), 11) \
+                .mask((5735 <= cat_mcc) & (cat_mcc < 5811) | (5999 <= cat_mcc) & (cat_mcc < 6760) | (5962 <= cat_mcc) & (cat_mcc < 5963) | (7011 <= cat_mcc) & (cat_mcc < 7033), 12) \
+                .mask((5950 <= cat_mcc) & (cat_mcc < 5962) | (5963 <= cat_mcc) & (cat_mcc < 5969), 13) \
+                .mask((7033 <= cat_mcc) & (cat_mcc < 7299), 14) \
+                .mask((7299 <= cat_mcc) & (cat_mcc < 7511) | (7519 <= cat_mcc) & (cat_mcc < 7523), 15) \
+                .mask((7523 <= cat_mcc) & (cat_mcc < 7699), 16) \
+                .mask((7699 <= cat_mcc) & (cat_mcc < 7999), 17) \
+                .mask((7999 <= cat_mcc) & (cat_mcc < 8351), 18) \
+                .mask((8351 <= cat_mcc) & (cat_mcc < 8699), 19) \
+                .mask((8699 <= cat_mcc) & (cat_mcc < 8999), 20) \
+                .mask((8999 <= cat_mcc) & (cat_mcc < 9702) | (9752 <= cat_mcc) & (cat_mcc < 9754), 21)
 
-res['mcc_describe'] = res['mcc_describe'].astype(object)
-res['mcc_code'] = res.mcc_code.astype(object)
-res['trans_type'] = res.trans_type.astype(object)
+    res['mcc_describe'] = a.reset_index(drop=True)
+    res['mcc_describe'] = res['mcc_describe'].astype(object)
 
-# Доходы / Расходы
-res['amount_up'] = res['amount'].where(res['amount'] >= 0)
-res['amount_down'] = res['amount'].where(res['amount'] <= 0).abs()
+    res['amount_up'] = res['amount'].where(res['amount'] >= 0)
+    res['amount_down'] = res['amount'].where(res['amount'] <= 0).abs()
 
-# Характеристика по клиентам заработок и траты
-tmp = res.groupby('client_id').agg({'amount_up': ['mean', 'median', 'std', 'count', 'sum'], \
-                                    'amount_down': ['mean', 'median', 'std', 'count', 'sum']})
-tmp.columns = tmp.columns.map('{0[0]}_client_{0[1]}'.format)
-res = res.merge(tmp, how='outer', on='client_id')
+    # Характеристика по клиентам заработок и траты
+    tmp = res[['client_id', 'amount_up', 'amount_down']].groupby('client_id').agg({'amount_up': ['mean', 'median', 'std', 'count', 'sum'], \
+                                                                                   'amount_down': ['mean', 'median', 'std', 'count', 'sum']})
+    tmp.columns = tmp.columns.map('{0[0]}_client_{0[1]}'.format)
+    res = res.merge(tmp, how='outer', on='client_id')
 
-# Характеристика по кол-во трат клиентами в дни недели заработок и траты
-aaa = res[['client_id', 'weekday', 'amount_up', 'amount_down']].groupby(['client_id', 'weekday']).count()
-aaa = aaa.unstack(-1)
-aaa.columns = aaa.columns.map('{0[0]}_weekday_{0[1]}'.format)
-res = res.merge(aaa, how='outer', on='client_id')
+    # Характеристика по кол-во трат клиентами в дни недели заработок и траты
+    aaa = res[['client_id', 'weekday', 'amount_up', 'amount_down']].groupby(['client_id', 'weekday']).count()
+    aaa = aaa.unstack(-1)
+    aaa.columns = aaa.columns.map('{0[0]}_weekday_{0[1]}'.format)
+    res = res.merge(aaa, how='outer', on='client_id')
 
-# Заработок - траты
-res['delta+-'] = res['amount_up_client_sum'] - res['amount_down_client_sum']
+    # Заработок - траты
+    res['delta+-'] = res['amount_up_client_sum'] - res['amount_down_client_sum']
 
-# Характеристика по количетсву mcc_code
-tmp = res.groupby('client_id')['mcc_code'].nunique()
-tmp.name = 'count_mcc_code'
-res = res.merge(tmp, how='outer', on='client_id')
+    res['mcc_code'] = res.mcc_code.astype(object)
+    res['trans_type'] = res.trans_type.astype(object)
 
-# Характеристика по количетсву trans_type
-tmp = res.groupby('client_id')['trans_type'].nunique()
-tmp.name = 'count_trans_type'
-res = res.merge(tmp, how='outer', on='client_id')
+    tmp = res.groupby('client_id')['term_id'].nunique()
+    tmp.name = 'count_term_id'
+    res = res.merge(tmp, how='outer', on='client_id')
 
-# Характеристика по количетсву term_id
-tmp = res.groupby('client_id')['term_id'].nunique()
-tmp.name = 'count_term_id'
-res = res.merge(tmp, how='outer', on='client_id')
+    # Характеристика по неделям для всех заработок и траты
+    tmp = res.groupby('client_id')['trans_type'].nunique()
+    tmp.name = 'count_trans_type'
+    res = res.merge(tmp, how='outer', on='client_id')
 
-# Частота покупок за время существования
-time_client = pd.concat([trans_time, res['client_id']], axis=1)
-abc = time_client.groupby('client_id').agg({'trans_time': ['min', 'max']}).diff(axis=1)
-abc.columns = ['nan', 'days']
-abcde = pd.DataFrame(res['client_id'].value_counts()).merge(abc['days'].dt.days, on='client_id')
-all_time_freq = abcde['days'] / abcde['count']
-all_time_freq.name = 'all_time_freq'
-res = res.merge(all_time_freq, on='client_id')
+    # Характеристика по неделям для всех заработок и траты
+    tmp = res.groupby('client_id')['mcc_code'].nunique()
+    tmp.name = 'count_mcc_code'
+    res = res.merge(tmp, how='outer', on='client_id')
 
-res.drop(['amount', 'amount_up', 'amount_down', 'weekday', 'trans_time'], axis=1, inplace=True)
+    # Частота покупок за время существования
+    time_client = pd.concat([trans_time, res['client_id']], axis=1)
+    abc = time_client.groupby('client_id').agg({'trans_time': ['min', 'max']}).diff(axis=1)
+    abc.columns = ['nan', 'days']
+    abcde = pd.DataFrame(res['client_id'].value_counts()).merge(abc['days'].dt.days, on='client_id')
+    all_time_freq = abcde['days'] / abcde['count']
+    all_time_freq.name = 'all_time_freq'
+    res = res.merge(all_time_freq, on='client_id')
 
-res.info()
-from sklearn.model_selection import train_test_split
-X_train, X_validation, y_train, y_validation = train_test_split(res.drop(['gender', 'term_id', 'client_id'], axis=1), res['gender'],
-                                                                train_size=0.7, random_state=234)
+    res.drop(['amount', 'amount_up', 'amount_down', 'weekday', 'trans_time'], axis=1, inplace=True)
+
+    return res
+
+
+train = preprocessing_data(transactions_train, transactions)
+test = preprocessing_data(transactions_test, transactions)
+
+train.info()
+print(train.isna().sum())
+
+test.info()
+print(test.isna().sum())
+
+
+# from sklearn.model_selection import train_test_split
+# X_train, X_validation, y_train, y_validation = train_test_split(train.drop(['term_id', 'client_id'], axis=1), label,
+#                                                                 train_size=0.7, random_state=234)
 cat_features = ['mcc_code', 'trans_type', 'trans_city', 'mcc_describe']
 
 model = CatBoostClassifier(
-    iterations=500,
+    iterations=1350,
     random_seed=63,
-    learning_rate=0.009,
+    learning_rate=0.0095,
     custom_loss='AUC',
     verbose=100
 )
+# model.fit(
+#     X_train, y_train,
+#     cat_features=cat_features,
+#     eval_set=(X_validation, y_validation),
+#     plot=True
+# )
 model.fit(
-    X_train, y_train,
-    cat_features=cat_features,
-    eval_set=(X_validation, y_validation),
-    plot=True
+    train.drop(['term_id', 'client_id'], axis=1), label,
+    cat_features=cat_features
 )
+model.save_model('catboost_model2.bin')
 
 
+# from catboost import cv
+# from catboost import Pool
+#
+# params = {}
+# params['loss_function'] = 'Logloss'
+# params['iterations'] = 1350
+# params['custom_loss'] = 'AUC'
+# params['random_seed'] = 63
+# params['learning_rate'] = 0.0095
+#
+# cv_data = cv(
+#     params = params,
+#     pool = Pool(train.drop(['term_id', 'client_id'], axis=1),
+#     label=label,
+#     cat_features=cat_features),
+#     fold_count=5,
+#     shuffle=True,
+#     partition_random_seed=0,
+#     plot=True,
+#     stratified=True,
+#     verbose=False
+# )
 
-"""from catboost import cv
-from catboost import Pool
+result2 = model.predict_proba(test.drop(['term_id', 'client_id'], axis=1))
+print(result2)
+result3 = result2[:, 0]
+print(result3)
+pd.DataFrame(result3).to_csv('result3_1.csv')
+pd.DataFrame(transactions_test['client_id']).to_csv('transactions_test_client_id.csv')
+submission = pd.DataFrame(pd.concat([transactions_test['client_id'], result3], axis=1), columns=['client_id', 'probability'])
+print(submission)
+submission.to_csv('test_submission.csv')
 
-params = {}
-params['loss_function'] = 'Logloss'
-params['iterations'] = 300
-params['custom_loss'] = 'AUC'
-params['random_seed'] = 63
-params['learning_rate'] = 0.01
 
-cv_data = cv(
-    params = params,
-    pool = Pool(res.drop(['gender', 'term_id', 'trans_time', 'client_id'], axis=1),
-    label=res['gender'],
-    cat_features=cat_features),
-    fold_count=5,
-    shuffle=True,
-    partition_random_seed=0,
-    plot=True,
-    stratified=True,
-    verbose=False
-)"""
+# print(train[train['delta+-'] == -4629928.72])
+
+
+# model = CatBoostClassifier()
+# model.load_model('catboost_model.bin')
+#
+# result2 = model.predict_proba(train.drop(['term_id', 'client_id'], axis=1))
+# #
+# submission = pd.DataFrame(index=transactions_test['client_id'], data=result2, columns=['probability'])
+# print(submission)
+#
+# submission.to_csv('test_submission.csv')
