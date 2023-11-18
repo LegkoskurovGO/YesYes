@@ -29,6 +29,8 @@ genders = pd.read_csv('train.csv',
                       sep=',',
                       header=0,
                       index_col=0)
+
+# res['gender'] = res.gender.astype(bool)
 # Мёрджим
 res = data.merge(genders, how='outer', on='client_id')
 # Перевод из float в bool
@@ -52,22 +54,39 @@ res_data.columns = ['hour', 'minute', 'second', 'day', 'year']
 abcdefg = compose_date(years=res_data['year'], days=res_data['day'], hours=res_data['hour'], minutes=res_data['minute'], seconds=res_data['second'])
 
 # Замена времени в исходном датасете с гендерами 
-res['trans_time'] = pd.Series(abcdefg, name='trans_time')
+trans_time = pd.Series(abcdefg, name='trans_time')
 
-res['month'] = res.trans_time.dt.month
-res['day'] = res.trans_time.dt.day
-res['weekday'] = res.trans_time.dt.weekday
-res['hour'] = res.trans_time.dt.hour
+# trans_time.dt.month
+# trans_time.dt.day
+res['weekday'] = trans_time.dt.weekday
+# trans_time.dt.hour
 
 res['amount+'] = res['amount'].where(res['amount'] >= 0)
 res['amount-'] = res['amount'].where(res['amount'] <= 0).abs()
 
-res.drop('amount', axis=1, inplace=True)
+# res.drop('amount', axis=1, inplace=True)
 
-tmp = res.groupby('month').agg({'amount+': ['mean', 'median', 'std', 'count'], \
-                                'amount-': ['mean', 'median', 'std', 'count']})
-tmp.columns = tmp.columns.map('{0[0]}_month_{0[1]}'.format)
-res = res.merge(tmp, how='outer', on='month')
+# Характеристика по неделям для всех заработок и траты
+tmp = res.groupby('weekday').agg({'amount+': ['mean', 'median', 'std', 'count'], \
+                                  'amount-': ['mean', 'median', 'std', 'count']})
+tmp.columns = tmp.columns.map('{0[0]}_weekday_{0[1]}'.format)
+res = res.merge(tmp, how='outer', on='weekday')
+
+# Характеристика по клиентам заработок и траты
+tmp = res.groupby('client_id').agg({'amount+': ['mean', 'median', 'std', 'count', 'sum'], \
+                                    'amount-': ['mean', 'median', 'std', 'count', 'sum']})
+tmp.columns = tmp.columns.map('{0[0]}_client_{0[1]}'.format)
+res = res.merge(tmp, how='outer', on='client_id')
+
+# Характеристика по кол-во трат клиентами в дни недели заработок и траты
+aaa = res[['client_id', 'weekday', 'amount+', 'amount-']].groupby(['client_id', 'weekday']).count()
+aaa = aaa.unstack(-1)
+aaa.columns = aaa.columns.map('{0[0]}_weekday_{0[1]}'.format)
+res = res.merge(aaa, how='outer', on='client_id')
 
 tmp = res.groupby('client_id').agg({'amount+': 'sum', 'amount-': 'sum'}).add_suffix('_client_sum')
 res = res.merge(tmp, how='outer', on='client_id')
+
+res['delta+-'] = res['amount+_client_sum'] - res['amount-_client_sum']
+
+print(res.info())
