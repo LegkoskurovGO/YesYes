@@ -61,31 +61,28 @@ trans_time = pd.Series(abcdefg, name='trans_time')
 res['weekday'] = trans_time.dt.weekday
 # trans_time.dt.hour
 
-res['amount+'] = res['amount'].where(res['amount'] >= 0)
-res['amount-'] = res['amount'].where(res['amount'] <= 0).abs()
+res['amount_up'] = res['amount'].where(res['amount'] >= 0)
+res['amount_down'] = res['amount'].where(res['amount'] <= 0).abs()
 
 # Характеристика по неделям для всех заработок и траты
-tmp = res.groupby('weekday').agg({'amount+': ['mean', 'median', 'std', 'count'], \
-                                  'amount-': ['mean', 'median', 'std', 'count']})
+tmp = res.groupby('weekday').agg({'amount_up': ['mean', 'median', 'std', 'count'], \
+                                  'amount_down': ['mean', 'median', 'std', 'count']})
 tmp.columns = tmp.columns.map('{0[0]}_weekday_{0[1]}'.format)
 res = res.merge(tmp, how='outer', on='weekday')
 
 # Характеристика по клиентам заработок и траты
-tmp = res.groupby('client_id').agg({'amount+': ['mean', 'median', 'std', 'count', 'sum'], \
-                                    'amount-': ['mean', 'median', 'std', 'count', 'sum']})
+tmp = res.groupby('client_id').agg({'amount_up': ['mean', 'median', 'std', 'count', 'sum'], \
+                                    'amount_down': ['mean', 'median', 'std', 'count', 'sum']})
 tmp.columns = tmp.columns.map('{0[0]}_client_{0[1]}'.format)
 res = res.merge(tmp, how='outer', on='client_id')
 
 # Характеристика по кол-во трат клиентами в дни недели заработок и траты
-aaa = res[['client_id', 'weekday', 'amount+', 'amount-']].groupby(['client_id', 'weekday']).count()
+aaa = res[['client_id', 'weekday', 'amount_up', 'amount_down']].groupby(['client_id', 'weekday']).count()
 aaa = aaa.unstack(-1)
 aaa.columns = aaa.columns.map('{0[0]}_weekday_{0[1]}'.format)
 res = res.merge(aaa, how='outer', on='client_id')
 
-tmp = res.groupby('client_id').agg({'amount+': 'sum', 'amount-': 'sum'}).add_suffix('_client_sum')
-res = res.merge(tmp, how='outer', on='client_id')
-
-res['delta+-'] = res['amount+_client_sum'] - res['amount-_client_sum']
+res['delta+-'] = res['amount_up_client_sum'] - res['amount_down_client_sum']
 
 res.drop('amount', axis=1, inplace=True)
 
