@@ -59,4 +59,15 @@ res['day'] = res.trans_time.dt.day
 res['weekday'] = res.trans_time.dt.weekday
 res['hour'] = res.trans_time.dt.hour
 
-print(res.head(10).to_string())
+res['amount+'] = res['amount'].where(res['amount'] >= 0)
+res['amount-'] = res['amount'].where(res['amount'] <= 0).abs()
+
+res.drop('amount', axis=1, inplace=True)
+
+tmp = res.groupby('month').agg({'amount+': ['mean', 'median', 'std', 'count'], \
+                                'amount-': ['mean', 'median', 'std', 'count']})
+tmp.columns = tmp.columns.map('{0[0]}_month_{0[1]}'.format)
+res = res.merge(tmp, how='outer', on='month')
+
+tmp = res.groupby('client_id').agg({'amount+': 'sum', 'amount-': 'sum'}).add_suffix('_client_sum')
+res = res.merge(tmp, how='outer', on='client_id')
