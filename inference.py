@@ -244,6 +244,40 @@ train.info()
 print(test.head(20))
 test.info()
 
+from sklearn.ensemble import RandomForestClassifier
+from sklearn.metrics import roc_auc_score
+
+train_x = train.drop(['term_id', 'client_id', 'gender', 'mcc_code'], axis=1)
+train_x['trans_type'] = train_x['trans_type'].astype(int)
+train_y = train['gender']
+
+train_x = pd.concat([train_x, pd.get_dummies(train_x['trans_city'].astype(str))], axis=1)
+train_x = pd.concat([train_x, pd.get_dummies(train_x['mcc_describe'].astype(str))], axis=1)
+train_x.drop(['mcc_describe', 'trans_city'], axis=1, inplace=True)
+#
+test_x = train.drop(['term_id', 'client_id', 'gender', 'mcc_code'], axis=1)
+test_x['trans_type'] = test_x['trans_type'].astype(int)
+test_y = train['gender']
+
+test_x = pd.concat([test_x, pd.get_dummies(test_x['trans_city'].astype(str))], axis=1)
+test_x = pd.concat([test_x, pd.get_dummies(test_x['mcc_describe'].astype(str))], axis=1)
+test_x.drop(['mcc_describe', 'trans_city'], axis=1, inplace=True)
+
+train_x.fillna(0, inplace=True)
+train_y.fillna(0, inplace=True)
+
+test_x.fillna(0, inplace=True)
+test_y.fillna(0, inplace=True)
+
+
+model = RandomForestClassifier(max_depth=10)
+model.fit(train_x, train_y)
+y_pred = model.predict(test_x)
+auc = roc_auc_score(test_y, y_pred)
+print(f'\n\nНаш результат: {auc}\n\n')
+a = input('всё')
+quit()
+
 cat_features = ['mcc_code', 'trans_type', 'trans_city', 'mcc_describe']
 
 # model = CatBoostClassifier(
