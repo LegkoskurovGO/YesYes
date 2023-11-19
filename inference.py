@@ -103,6 +103,9 @@ def preprocessing_data(res: pd.DataFrame, data: pd.DataFrame) -> pd.DataFrame:
     aaa = aaa.unstack(-1)
     aaa.columns = aaa.columns.map('{0[0]}_weekday_{0[1]}'.format)
     res = res.merge(aaa, how='outer', on='client_id')
+    res['amount_mean_up_weekday'] = res[[x for x in res.columns if "amount_up_weekday" in x]].mean(axis=1)
+    res['amount_mean_down_weekday'] = res[[x for x in res.columns if "amount_down_weekday" in x]].mean(axis=1)
+
 
     # Заработок - траты
     res['delta+-'] = res['amount_up_client_sum'] - res['amount_down_client_sum']
@@ -136,7 +139,13 @@ def preprocessing_data(res: pd.DataFrame, data: pd.DataFrame) -> pd.DataFrame:
     all_time_freq.name = 'all_time_freq'
     res = res.merge(all_time_freq, on='client_id')
 
-    res.drop(['amount', 'amount_up', 'amount_down', 'weekday', 'trans_time'], axis=1, inplace=True)
+    res.drop(['amount',
+              'amount_up',
+              'amount_down',
+              'weekday',
+              'trans_time',
+              *[x for x in res.columns if "amount_up_weekday" in x],
+              *[x for x in res.columns if "amount_down_weekday" in x]], axis=1, inplace=True)
 
     return res
 
@@ -146,7 +155,7 @@ def construct_features(data):
 
     splitted = data['trans_time'].str.split(' ', n=1, expand=True)
     data["day"] = pd.DataFrame(splitted[0]).astype("int64")
-    data["time"] = pd.DataFrame(splitted[1].str.split(':', expand = True)[0]).astype("int64")
+    data["time"] = pd.DataFrame(splitted[1].str.split(':', expand=True)[0]).astype("int64")
 
     # amount per transaction
 
@@ -224,11 +233,11 @@ def construct_features(data):
 
 
 
-# train = preprocessing_data(train, transactions)
-# test = preprocessing_data(test, transactions)
+train = preprocessing_data(train, transactions)
+test = preprocessing_data(test, transactions)
 
-train = construct_features(train)
-test = construct_features(test)
+# train = construct_features(train)
+# test = construct_features(test)
 
 print(train.head(20))
 train.info()
@@ -265,11 +274,13 @@ from sklearn.metrics import roc_auc_score
 
 
 model = CatBoostClassifier(
+    iterations=150,
     random_seed=63,
     custom_loss='AUC',
+    eval_metric='AUC',
     verbose=20,
     od_type='Iter',
-    od_wait=50,
+    od_wait=70,
     use_best_model=True
 )
 model.fit(
