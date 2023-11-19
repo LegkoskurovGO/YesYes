@@ -84,13 +84,13 @@ def preprocessing_data(res: pd.DataFrame, data: pd.DataFrame) -> pd.DataFrame:
     a = res['amount_up']
     res['amount_up'] = a.mask(a < a.quantile(0.05), a.quantile(0.05)) \
                         .mask(a > a.quantile(0.95), a.quantile(0.95))
-    res['amount_up'] = MinMaxScaler().fit_transform(res[['amount_up']]) * 1000
+    # res['amount_up'] = MinMaxScaler().fit_transform(res[['amount_up']]) * 1000
     
     res['amount_down'] = res['amount'].where(res['amount'] <= 0).abs()
     a = res['amount_down']
     res['amount_down'] = a.mask(a < a.quantile(0.05), a.quantile(0.05)) \
                           .mask(a > a.quantile(0.95), a.quantile(0.95))
-    res['amount_down'] = MinMaxScaler().fit_transform(res[['amount_down']]) * 1000
+    # res['amount_down'] = MinMaxScaler().fit_transform(res[['amount_down']]) * 1000
 
     # Характеристика по клиентам заработок и траты
     tmp = res[['client_id', 'amount_up', 'amount_down']].groupby('client_id').agg({'amount_up': ['mean', 'median', 'std', 'count', 'sum'], \
@@ -141,9 +141,99 @@ def preprocessing_data(res: pd.DataFrame, data: pd.DataFrame) -> pd.DataFrame:
     return res
 
 
-train = preprocessing_data(train, transactions)
-test = preprocessing_data(test, transactions)
+def construct_features(data):
+    # convert time data for the whole dataset first
 
+    splitted = data['trans_time'].str.split(' ', n=1, expand=True)
+    data["day"] = pd.DataFrame(splitted[0]).astype("int64")
+    data["time"] = pd.DataFrame(splitted[1].str.split(':', expand = True)[0]).astype("int64")
+
+    # amount per transaction
+
+    data["Mean_net_money_per_transaction"] = data.groupby(['client_id'])["amount"].transform("mean")
+    data["Std_net_money_per_transaction"] = data.groupby(['client_id'])["amount"].transform("std").fillna(0)
+
+    func = lambda x: x.values[0] if x[x < 0].count() == 1 else x[x < 0].mean()
+    data["Mean_spend_money_per_transaction"] = data.groupby(['client_id'])["amount"].transform(func).fillna(0)
+    func = lambda x: x.values[0] if x[x > 0].count() == 1 else x[x > 0].mean()
+    data["Mean_earn_money_per_transaction"] = data.groupby(['client_id'])["amount"].transform(func).fillna(0)
+
+    func = lambda x: x[x < 0].std()
+    data["Money_spend_std_per_transaction"] = data.groupby(['client_id'])["amount"].transform(func).fillna(0)
+    func = lambda x: x[x > 0].std()
+    data["Mean_earn_std_per_transaction"] = data.groupby(['client_id'])["amount"].transform(func).fillna(0)
+
+    data["Money_earn_spend_ratio_per_transaction"] = (data["Mean_earn_money_per_transaction"].abs() / data["Money_spend_std_per_transaction"].abs()).fillna(0)
+    data["Money_earn_spend_ratio_per_transaction"].replace(np.inf, 1000, inplace = True)
+
+    print("amount per transaction is completed")
+
+    # amount all
+
+    data["ALL_money_net"] = data.groupby(['client_id'])["amount"].transform("sum")
+
+    func = lambda x: x[x < 0].sum()
+    data["ALL_money_spend"] = data.groupby(['client_id'])["amount"].transform(func).fillna(0)
+    func = lambda x: x[x > 0].sum()
+    data["ALL_money_earn"] = data.groupby(['client_id'])["amount"].transform(func).fillna(0)
+
+    data["ALL_money_spend_earn_ratio"] = (data["ALL_money_spend"].abs() / data["ALL_money_earn"].abs())
+    data["ALL_money_spend_earn_ratio"].replace(np.inf, 1000, inplace = True)
+
+    print("amount all is completed")
+
+    # frequency of transactions
+
+    data["Frequency_of_spending_per_day"] =  data.groupby(['client_id', 'day'])['day'].transform("count")
+    data["Frequency_of_spending_all"] =  data.groupby(['client_id'])['day'].transform("count")
+    func = lambda x: (x.count()/7)
+    data["Frequency_of_spending_per_week"] = data.groupby(['client_id'])['day'].transform(func)
+
+    data["Hours_std_transaction_per_day"] = data.groupby(['client_id','day'])['time'].transform("std").fillna(0)
+
+    print("frequency is completed")
+
+    # habits
+
+    data["Terminal_habit"] = data.groupby(['client_id','term_id'])['term_id'].transform("count").fillna(0)
+    data["Terminal_habit_sum_money"] = data.groupby(['client_id','term_id'])['amount'].transform("sum").fillna(0)
+    data["Terminal_habit_money"] =data.groupby(['client_id','term_id'])['amount'].transform("mean").fillna(0)
+
+    data["Service_habit"] = data.groupby(['client_id','trans_type'])['trans_type'].transform("count").fillna(0)
+
+    data["Product_habit_frequency"] = data.groupby(['client_id','mcc_code'])['mcc_code'].transform("count").fillna(0)
+    data["Product_habit_sum_money"] = data.groupby(['client_id','mcc_code'])['amount'].transform("sum").fillna(0)
+    data["Product_habit_mean_money"] = data.groupby(['client_id','mcc_code'])['amount'].transform("mean").fillna(0)
+
+    print("habits is completed")
+
+    # amount per day
+
+    data["Mean_net_money_per_day"] = data.groupby(['client_id','day'])["amount"].transform("mean")
+    data["Std_net_money_per_day"] = data.groupby(['client_id','day'])["amount"].transform("std").fillna(0)
+
+    func = lambda x: x.values[0] if x[x < 0].count() == 1 else x[x < 0].mean()
+    data["Mean_spend_money_per_day"] = data.groupby(['client_id','day'])["amount"].transform(func).fillna(0)
+    func = lambda x: x.values[0] if x[x > 0].count() == 1 else x[x > 0].mean()
+    data["Mean_earn_money_per_day"] = data.groupby(['client_id','day'])["amount"].transform(func).fillna(0)
+
+    print("amount per day is completed")
+
+    print("Feature construction is completed")
+    return data
+
+
+
+# train = preprocessing_data(train, transactions)
+# test = preprocessing_data(test, transactions)
+
+train = construct_features(train)
+test = construct_features(test)
+
+print(train.head(20))
+train.info()
+print(test.head(20))
+test.info()
 
 cat_features = ['mcc_code', 'trans_type', 'trans_city', 'mcc_describe']
 
@@ -159,7 +249,7 @@ cat_features = ['mcc_code', 'trans_type', 'trans_city', 'mcc_describe']
 #     cat_features=cat_features
 # )
 #
-# from sklearn.metrics import roc_auc_score
+from sklearn.metrics import roc_auc_score
 # y_pred = model.predict_proba(test.drop(['term_id', 'client_id', 'gender'], axis=1))[:, 1]
 # auc = roc_auc_score (test['gender'], y_pred)
 # print(auc)
@@ -173,13 +263,18 @@ cat_features = ['mcc_code', 'trans_type', 'trans_city', 'mcc_describe']
 #
 
 
+
 model = CatBoostClassifier(
     random_seed=63,
     custom_loss='AUC',
-    verbose=10
+    verbose=20,
+    od_type='Iter',
+    od_wait=50,
+    use_best_model=True
 )
 model.fit(
     train.drop(['term_id', 'client_id', 'gender'], axis=1), train['gender'],
+    eval_set=(test.drop(['term_id', 'client_id', 'gender'], axis=1), test['gender']),
     cat_features=cat_features
 )
 y_pred = model.predict_proba(test.drop(['term_id', 'client_id', 'gender'], axis=1))[:, 1]
