@@ -25,8 +25,12 @@ gender_test = pd.read_csv(os.path.join(PATH_DATA, 'test.csv'),
 transactions_train = transactions.merge(gender_train, how='inner', on='client_id')
 transactions_test = transactions.merge(gender_test, how='inner', on='client_id')
 
-label = transactions_train['gender']
-transactions_train.drop('gender', axis=1, inplace=True)
+razbivka = transactions_train.groupby(['gender', 'client_id'], as_index=False).count()
+
+razbivka2 = pd.concat([razbivka.query('gender == 1').sample(n=756)['client_id'], razbivka.query('gender == 0').sample(n=756)['client_id']], axis=0)
+
+train = transactions_train[~transactions_train['client_id'].isin(razbivka2)].reset_index(drop=True)
+test = transactions_train[transactions_train['client_id'].isin(razbivka2)].reset_index(drop=True)
 
 
 def preprocessing_data(res: pd.DataFrame, data: pd.DataFrame) -> pd.DataFrame:
@@ -101,10 +105,10 @@ def preprocessing_data(res: pd.DataFrame, data: pd.DataFrame) -> pd.DataFrame:
     res = res.merge(aaa, how='outer', on='client_id')
 
     # Заработок - траты
-    # res['delta+-'] = res['amount_up_client_sum'] - res['amount_down_client_sum']
-    # a = res['delta+-']
-    # res['delta+-'] = a.mask(a < a.quantile(0.05), a.quantile(0.05)) \
-    #                   .mask(a > a.quantile(0.95), a.quantile(0.95))
+    res['delta+-'] = res['amount_up_client_sum'] - res['amount_down_client_sum']
+    a = res['delta+-']
+    res['delta+-'] = a.mask(a < a.quantile(0.05), a.quantile(0.05)) \
+                      .mask(a > a.quantile(0.95), a.quantile(0.95))
 
     res['mcc_code'] = res.mcc_code.astype(object)
     res['trans_type'] = res.trans_type.astype(object)
@@ -137,25 +141,47 @@ def preprocessing_data(res: pd.DataFrame, data: pd.DataFrame) -> pd.DataFrame:
     return res
 
 
-train = preprocessing_data(transactions_train, transactions)
-test = preprocessing_data(transactions_test, transactions)
+train = preprocessing_data(train, transactions)
+test = preprocessing_data(test, transactions)
+
 
 cat_features = ['mcc_code', 'trans_type', 'trans_city', 'mcc_describe']
 
-model = CatBoostClassifier(
-    iterations=50,
-    random_seed=63,
-    learning_rate=0.011,
-    custom_loss='AUC',
-    verbose=10
-)
-model.fit(
-    train.drop(['term_id', 'client_id'], axis=1), label,
-    cat_features=cat_features
-)
+# model = CatBoostClassifier(
+#     iterations=100,
+#     random_seed=63,
+#     learning_rate=0.025,
+#     custom_loss='AUC',
+#     verbose=10
+# )
+# model.fit(
+#     train.drop(['term_id', 'client_id', 'gender'], axis=1), train['gender'],
+#     cat_features=cat_features
+# )
+#
+# from sklearn.metrics import roc_auc_score
+# y_pred = model.predict_proba(test.drop(['term_id', 'client_id', 'gender'], axis=1))[:, 1]
+# auc = roc_auc_score (test['gender'], y_pred)
+# print(auc)
 
+
+#
 # test['probability'] = model.predict_proba(test.drop(['term_id', 'client_id'], axis=1))[:, 1]
 # submission= test[['client_id', 'probability']]
 #
 # submission.to_csv('result.csv')
+#
 
+
+model = CatBoostClassifier(
+    random_seed=63,
+    custom_loss='AUC',
+    verbose=10
+)
+model.fit(
+    train.drop(['term_id', 'client_id', 'gender'], axis=1), train['gender'],
+    cat_features=cat_features
+)
+y_pred = model.predict_proba(test.drop(['term_id', 'client_id', 'gender'], axis=1))[:, 1]
+auc = roc_auc_score (test['gender'], y_pred)
+print(auc)
