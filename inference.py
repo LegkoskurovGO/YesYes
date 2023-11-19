@@ -1,10 +1,11 @@
 import pandas as pd
 import numpy as np
-import matplotlib.pyplot as plt
-import seaborn as sns
+# import matplotlib.pyplot as plt
+# import seaborn as sns
 import datetime
 from catboost import CatBoostClassifier
 from sklearn.model_selection import train_test_split
+from sklearn.preprocessing import MinMaxScaler
 import os
 
 PATH_DATA = './data'
@@ -76,7 +77,16 @@ def preprocessing_data(res: pd.DataFrame, data: pd.DataFrame) -> pd.DataFrame:
     res['mcc_describe'] = res['mcc_describe'].astype(object)
 
     res['amount_up'] = res['amount'].where(res['amount'] >= 0)
+    a = res['amount_up']
+    res['amount_up'] = a.mask(a < a.quantile(0.05), a.quantile(0.05)) \
+                        .mask(a > a.quantile(0.95), a.quantile(0.95))
+    res['amount_up'] = MinMaxScaler().fit_transform(res[['amount_up']])* 1000
+    
     res['amount_down'] = res['amount'].where(res['amount'] <= 0).abs()
+    a = res['amount_down']
+    res['amount_down'] = a.mask(a < a.quantile(0.05), a.quantile(0.05)) \
+                          .mask(a > a.quantile(0.95), a.quantile(0.95))
+    res['amount_down'] = MinMaxScaler().fit_transform(res[['amount_down']]) * 1000
 
     # Характеристика по клиентам заработок и траты
     tmp = res[['client_id', 'amount_up', 'amount_down']].groupby('client_id').agg({'amount_up': ['mean', 'median', 'std', 'count', 'sum'], \
@@ -91,7 +101,10 @@ def preprocessing_data(res: pd.DataFrame, data: pd.DataFrame) -> pd.DataFrame:
     res = res.merge(aaa, how='outer', on='client_id')
 
     # Заработок - траты
-    res['delta+-'] = res['amount_up_client_sum'] - res['amount_down_client_sum']
+    # res['delta+-'] = res['amount_up_client_sum'] - res['amount_down_client_sum']
+    # a = res['delta+-']
+    # res['delta+-'] = a.mask(a < a.quantile(0.05), a.quantile(0.05)) \
+    #                   .mask(a > a.quantile(0.95), a.quantile(0.95))
 
     res['mcc_code'] = res.mcc_code.astype(object)
     res['trans_type'] = res.trans_type.astype(object)
@@ -127,81 +140,29 @@ def preprocessing_data(res: pd.DataFrame, data: pd.DataFrame) -> pd.DataFrame:
 train = preprocessing_data(transactions_train, transactions)
 test = preprocessing_data(transactions_test, transactions)
 
-train.info()
-print(train.isna().sum())
-
-test.info()
-print(test.isna().sum())
-
-
-# from sklearn.model_selection import train_test_split
-# X_train, X_validation, y_train, y_validation = train_test_split(train.drop(['term_id', 'client_id'], axis=1), label,
-#                                                                 train_size=0.7, random_state=234)
 cat_features = ['mcc_code', 'trans_type', 'trans_city', 'mcc_describe']
 
 model = CatBoostClassifier(
-    iterations=1350,
+    iterations=550,
     random_seed=63,
-    learning_rate=0.0095,
+    learning_rate=0.011,
     custom_loss='AUC',
-    verbose=100
+    verbose=10
 )
-# model.fit(
-#     X_train, y_train,
-#     cat_features=cat_features,
-#     eval_set=(X_validation, y_validation),
-#     plot=True
-# )
 model.fit(
     train.drop(['term_id', 'client_id'], axis=1), label,
     cat_features=cat_features
 )
-model.save_model('catboost_model2.bin')
+
+test['probability'] = model.predict_proba(test.drop(['term_id', 'client_id'], axis=1))[:, 1]
+submission= test[['client_id', 'probability']]
+
+submission.to_csv('result.csv')
+
+train.describe(percentiles=[0.1, 0.9])
 
 
-# from catboost import cv
-# from catboost import Pool
-#
-# params = {}
-# params['loss_function'] = 'Logloss'
-# params['iterations'] = 1350
-# params['custom_loss'] = 'AUC'
-# params['random_seed'] = 63
-# params['learning_rate'] = 0.0095
-#
-# cv_data = cv(
-#     params = params,
-#     pool = Pool(train.drop(['term_id', 'client_id'], axis=1),
-#     label=label,
-#     cat_features=cat_features),
-#     fold_count=5,
-#     shuffle=True,
-#     partition_random_seed=0,
-#     plot=True,
-#     stratified=True,
-#     verbose=False
-# )
 
-result2 = model.predict_proba(test.drop(['term_id', 'client_id'], axis=1))
-print(result2)
-result3 = result2[:, 0]
-print(result3)
-pd.DataFrame(result3).to_csv('result3_1.csv')
-pd.DataFrame(transactions_test['client_id']).to_csv('transactions_test_client_id.csv')
-submission = pd.DataFrame(pd.concat([transactions_test['client_id'], result3], axis=1), columns=['client_id', 'probability'])
-print(submission)
-submission.to_csv('test_submission.csv')
-
-
-# print(train[train['delta+-'] == -4629928.72])
-
-
-# model = CatBoostClassifier()
-# model.load_model('catboost_model.bin')
-#
-# result2 = model.predict_proba(train.drop(['term_id', 'client_id'], axis=1))
-# #
-# submission = pd.DataFrame(index=transactions_test['client_id'], data=result2, columns=['probability'])
-# print(submission)
-#
-# submission.to_csv('test_submission.csv')
+a = train['delta+-']
+train['delta+-'] = a.mask(a < a.quantile(0.05), a.quantile(0.05)) \
+                    .mask(a > a.quantile(0.95), a.quantile(0.95))
