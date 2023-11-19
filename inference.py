@@ -80,7 +80,7 @@ def preprocessing_data(res: pd.DataFrame, data: pd.DataFrame) -> pd.DataFrame:
     a = res['amount_up']
     res['amount_up'] = a.mask(a < a.quantile(0.05), a.quantile(0.05)) \
                         .mask(a > a.quantile(0.95), a.quantile(0.95))
-    res['amount_up'] = MinMaxScaler().fit_transform(res[['amount_up']])* 1000
+    res['amount_up'] = MinMaxScaler().fit_transform(res[['amount_up']]) * 1000
     
     res['amount_down'] = res['amount'].where(res['amount'] <= 0).abs()
     a = res['amount_down']
@@ -143,7 +143,7 @@ test = preprocessing_data(transactions_test, transactions)
 cat_features = ['mcc_code', 'trans_type', 'trans_city', 'mcc_describe']
 
 model = CatBoostClassifier(
-    iterations=550,
+    iterations=50,
     random_seed=63,
     learning_rate=0.011,
     custom_loss='AUC',
@@ -154,15 +154,8 @@ model.fit(
     cat_features=cat_features
 )
 
-test['probability'] = model.predict_proba(test.drop(['term_id', 'client_id'], axis=1))[:, 1]
-submission= test[['client_id', 'probability']]
+# test['probability'] = model.predict_proba(test.drop(['term_id', 'client_id'], axis=1))[:, 1]
+# submission= test[['client_id', 'probability']]
+#
+# submission.to_csv('result.csv')
 
-submission.to_csv('result.csv')
-
-train.describe(percentiles=[0.1, 0.9])
-
-
-
-a = train['delta+-']
-train['delta+-'] = a.mask(a < a.quantile(0.05), a.quantile(0.05)) \
-                    .mask(a > a.quantile(0.95), a.quantile(0.95))
