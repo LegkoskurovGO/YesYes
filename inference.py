@@ -25,12 +25,12 @@ gender_test = pd.read_csv(os.path.join(PATH_DATA, 'test.csv'),
 transactions_train = transactions.merge(gender_train, how='inner', on='client_id')
 transactions_test = transactions.merge(gender_test, how='inner', on='client_id')
 
-razbivka = transactions_train.groupby(['gender', 'client_id'], as_index=False).count()
-
-razbivka2 = pd.concat([razbivka.query('gender == 1').sample(n=756)['client_id'], razbivka.query('gender == 0').sample(n=756)['client_id']], axis=0)
-
-train = transactions_train[~transactions_train['client_id'].isin(razbivka2)].reset_index(drop=True)
-test = transactions_train[transactions_train['client_id'].isin(razbivka2)].reset_index(drop=True)
+# razbivka = transactions_train.groupby(['gender', 'client_id'], as_index=False).count()
+#
+# razbivka2 = pd.concat([razbivka.query('gender == 1').sample(n=756)['client_id'], razbivka.query('gender == 0').sample(n=756)['client_id']], axis=0)
+#
+# train = transactions_train[~transactions_train['client_id'].isin(razbivka2)].reset_index(drop=True)
+# test = transactions_train[transactions_train['client_id'].isin(razbivka2)].reset_index(drop=True)
 
 
 def preprocessing_data(res: pd.DataFrame, data: pd.DataFrame) -> pd.DataFrame:
@@ -138,14 +138,14 @@ def preprocessing_data(res: pd.DataFrame, data: pd.DataFrame) -> pd.DataFrame:
     all_time_freq = abcde['days'] / abcde['count']
     all_time_freq.name = 'all_time_freq'
     res = res.merge(all_time_freq, on='client_id')
-
-    res.drop(['amount',
-              'amount_up',
-              'amount_down',
-              'weekday',
-              'trans_time',
-              *[x for x in res.columns if "amount_up_weekday" in x],
-              *[x for x in res.columns if "amount_down_weekday" in x]], axis=1, inplace=True)
+    #
+    # res.drop(['amount',
+    #           'amount_up',
+    #           'amount_down',
+    #           'weekday',
+    #           'trans_time',
+    #           *[x for x in res.columns if "amount_up_weekday" in x],
+    #           *[x for x in res.columns if "amount_down_weekday" in x]], axis=1, inplace=True)
 
     return res
 
@@ -218,13 +218,55 @@ def construct_features(data):
 
     # amount per day
 
-    data["Mean_net_money_per_day"] = data.groupby(['client_id','day'])["amount"].transform("mean")
-    data["Std_net_money_per_day"] = data.groupby(['client_id','day'])["amount"].transform("std").fillna(0)
+    # amount per day
+    data['amount_down'] = data['amount'].where(data['amount'] <= 0).abs()
+    data['amount_up'] = data['amount'].where(data['amount'] >= 0)
+    day_time = data['trans_time'].str.split(' ', n=1, expand=True)
+    day_time.columns = ['day', 'time']
+    day_time['day'] = day_time['day'].astype(int)
+    start_date = datetime.datetime(2020, 3, 8, 0, 0, 0) - datetime.timedelta(219)
+    trans_time = pd.Series(start_date + pd.to_timedelta(np.ceil(day_time['day']), unit="D"), name='trans_time')
+    data['weekday'] = trans_time.dt.weekday
+    aaa = data[['client_id', 'weekday', 'amount_up', 'amount_down']].groupby(['client_id', 'weekday']).count()
+    aaa = aaa.unstack(-1)
+    aaa.columns = aaa.columns.map('{0[0]}_weekday_{0[1]}'.format)
+    data = data.merge(aaa, how='outer', on='client_id')
+    data['amount_mean_up_weekday'] = data[[x for x in data.columns if "amount_up_weekday" in x]].mean(axis=1)
+    data['amount_mean_down_weekday'] = data[[x for x in data.columns if "amount_down_weekday" in x]].mean(axis=1)
+    data.drop(['amount_up',
+               'amount_down',
+               'weekday',
+               'trans_time',
+               *[x for x in data.columns if "amount_up_weekday" in x],
+               *[x for x in data.columns if "amount_down_weekday" in x]], axis=1, inplace=True)
 
-    func = lambda x: x.values[0] if x[x < 0].count() == 1 else x[x < 0].mean()
-    data["Mean_spend_money_per_day"] = data.groupby(['client_id','day'])["amount"].transform(func).fillna(0)
-    func = lambda x: x.values[0] if x[x > 0].count() == 1 else x[x > 0].mean()
-    data["Mean_earn_money_per_day"] = data.groupby(['client_id','day'])["amount"].transform(func).fillna(0)
+    cat_mcc = data["mcc_code"]
+    cat_mcc.index = data['client_id']
+    cat_mcc.name = 'mcc_describe'
+
+    a = cat_mcc.mask((724 <= cat_mcc) & (cat_mcc < 1799), 1) \
+        .mask((1799 <= cat_mcc) & (cat_mcc < 2842) | (4900 <= cat_mcc) & (cat_mcc < 5200) | (5714 <= cat_mcc) & (cat_mcc < 5715) | (9702 <= cat_mcc) & (cat_mcc < 9752), 2) \
+        .mask((2842 <= cat_mcc) & (cat_mcc < 3299), 3) \
+        .mask((3299 <= cat_mcc) & (cat_mcc < 3441) | (7511 <= cat_mcc) & (cat_mcc < 7519), 4) \
+        .mask((3441 <= cat_mcc) & (cat_mcc < 3882) | (6760 <= cat_mcc) & (cat_mcc < 7011), 5) \
+        .mask((3882 <= cat_mcc) & (cat_mcc < 4789), 6) \
+        .mask((4789 <= cat_mcc) & (cat_mcc < 4900), 7) \
+        .mask((5200 <= cat_mcc) & (cat_mcc < 5499), 8) \
+        .mask((5499 <= cat_mcc) & (cat_mcc < 5599) | (5699 <= cat_mcc) & (cat_mcc < 5714) | (5969 <= cat_mcc) & (cat_mcc < 5999), 9) \
+        .mask((5599 <= cat_mcc) & (cat_mcc < 5699), 10) \
+        .mask((5715 <= cat_mcc) & (cat_mcc < 5735) | (5811 <= cat_mcc) & (cat_mcc < 5950), 11) \
+        .mask((5735 <= cat_mcc) & (cat_mcc < 5811) | (5999 <= cat_mcc) & (cat_mcc < 6760) | (5962 <= cat_mcc) & (cat_mcc < 5963) | (7011 <= cat_mcc) & (cat_mcc < 7033), 12) \
+        .mask((5950 <= cat_mcc) & (cat_mcc < 5962) | (5963 <= cat_mcc) & (cat_mcc < 5969), 13) \
+        .mask((7033 <= cat_mcc) & (cat_mcc < 7299), 14) \
+        .mask((7299 <= cat_mcc) & (cat_mcc < 7511) | (7519 <= cat_mcc) & (cat_mcc < 7523), 15) \
+        .mask((7523 <= cat_mcc) & (cat_mcc < 7699), 16) \
+        .mask((7699 <= cat_mcc) & (cat_mcc < 7999), 17) \
+        .mask((7999 <= cat_mcc) & (cat_mcc < 8351), 18) \
+        .mask((8351 <= cat_mcc) & (cat_mcc < 8699), 19) \
+        .mask((8699 <= cat_mcc) & (cat_mcc < 8999), 20) \
+        .mask((8999 <= cat_mcc) & (cat_mcc < 9702) | (9752 <= cat_mcc) & (cat_mcc < 9754), 21)
+    data['mcc_describe'] = a.reset_index(drop=True)
+    data['mcc_describe'] = data['mcc_describe'].astype(object)
 
     print("amount per day is completed")
 
@@ -233,95 +275,107 @@ def construct_features(data):
 
 
 
-train = preprocessing_data(train, transactions)
-test = preprocessing_data(test, transactions)
+train = preprocessing_data(transactions_train, transactions)
+test = preprocessing_data(transactions_test, transactions)
 
-# train = construct_features(train)
-# test = construct_features(test)
+train = construct_features(train)
+test = construct_features(test)
 
-print(train.head(20))
-train.info()
-print(test.head(20))
-test.info()
-
-from sklearn.ensemble import RandomForestClassifier
-from sklearn.metrics import roc_auc_score
-
-train_x = train.drop(['term_id', 'client_id', 'gender', 'mcc_code'], axis=1)
-train_x['trans_type'] = train_x['trans_type'].astype(int)
-train_y = train['gender']
-
-train_x = pd.concat([train_x, pd.get_dummies(train_x['trans_city'].astype(str))], axis=1)
-train_x = pd.concat([train_x, pd.get_dummies(train_x['mcc_describe'].astype(str))], axis=1)
-train_x.drop(['mcc_describe', 'trans_city'], axis=1, inplace=True)
+# print(train.head(20))
+# train.info()
+# print(test.head(20))
+# test.info()
 #
-test_x = train.drop(['term_id', 'client_id', 'gender', 'mcc_code'], axis=1)
-test_x['trans_type'] = test_x['trans_type'].astype(int)
-test_y = train['gender']
-
-test_x = pd.concat([test_x, pd.get_dummies(test_x['trans_city'].astype(str))], axis=1)
-test_x = pd.concat([test_x, pd.get_dummies(test_x['mcc_describe'].astype(str))], axis=1)
-test_x.drop(['mcc_describe', 'trans_city'], axis=1, inplace=True)
-
-train_x.fillna(0, inplace=True)
-train_y.fillna(0, inplace=True)
-
-test_x.fillna(0, inplace=True)
-test_y.fillna(0, inplace=True)
-
-
-model = RandomForestClassifier(max_depth=10)
-model.fit(train_x, train_y)
-y_pred = model.predict(test_x)
-auc = roc_auc_score(test_y, y_pred)
-print(f'\n\nНаш результат: {auc}\n\n')
-a = input('всё')
-quit()
-
+# from sklearn.ensemble import RandomForestClassifier
+# from sklearn.metrics import roc_auc_score
+#
+# train_x = train.drop(['term_id', 'client_id', 'gender', 'mcc_code'], axis=1)
+# train_x['trans_type'] = train_x['trans_type'].astype(int)
+# train_y = train['gender']
+#
+# train_x = pd.concat([train_x, pd.get_dummies(train_x['trans_city'].astype(str))], axis=1)
+# train_x = pd.concat([train_x, pd.get_dummies(train_x['mcc_describe'].astype(str))], axis=1)
+# train_x.drop(['mcc_describe', 'trans_city'], axis=1, inplace=True)
+# #
+# test_x = test.drop(['term_id', 'client_id', 'gender', 'mcc_code'], axis=1)
+# test_x['trans_type'] = test_x['trans_type'].astype(int)
+# test_y = test['gender']
+#
+# test_x = pd.concat([test_x, pd.get_dummies(test_x['trans_city'].astype(str))], axis=1)
+# test_x = pd.concat([test_x, pd.get_dummies(test_x['mcc_describe'].astype(str))], axis=1)
+# test_x.drop(['mcc_describe', 'trans_city'], axis=1, inplace=True)
+#
+# train_x.fillna(0, inplace=True)
+# train_y.fillna(0, inplace=True)
+#
+# test_x.fillna(0, inplace=True)
+# test_y.fillna(0, inplace=True)
+#
+# print('\n\ntrain_x\n\n')
+# train_x.info()
+# print('\n\ntrain_y\n\n')
+# train_y.info()
+# print('\n\ntest_x\n\n')
+# test_x.info()
+# print('\n\ntest_y\n\n')
+# test_y.info()
+#
+#
+# model = RandomForestClassifier(max_depth=10)
+# model.fit(train_x, train_y)
+# y_pred = model.predict(test_x)
+# auc = roc_auc_score(test_y, y_pred)
+# print(f'\n\nНаш результат: {auc}\n\n')
+# a = input('всё')
+# quit()
+#
 cat_features = ['mcc_code', 'trans_type', 'trans_city', 'mcc_describe']
 
-# model = CatBoostClassifier(
-#     iterations=100,
-#     random_seed=63,
-#     learning_rate=0.025,
-#     custom_loss='AUC',
-#     verbose=10
-# )
-# model.fit(
-#     train.drop(['term_id', 'client_id', 'gender'], axis=1), train['gender'],
-#     cat_features=cat_features
-# )
-#
-from sklearn.metrics import roc_auc_score
-# y_pred = model.predict_proba(test.drop(['term_id', 'client_id', 'gender'], axis=1))[:, 1]
-# auc = roc_auc_score (test['gender'], y_pred)
-# print(auc)
-
-
-#
-# test['probability'] = model.predict_proba(test.drop(['term_id', 'client_id'], axis=1))[:, 1]
-# submission= test[['client_id', 'probability']]
-#
-# submission.to_csv('result.csv')
-#
-
-
-
 model = CatBoostClassifier(
-    iterations=150,
+    iterations=1500,
     random_seed=63,
+    learning_rate=0.011,
     custom_loss='AUC',
-    eval_metric='AUC',
-    verbose=20,
+    verbose=10,
     od_type='Iter',
     od_wait=70,
     use_best_model=True
 )
 model.fit(
     train.drop(['term_id', 'client_id', 'gender'], axis=1), train['gender'],
-    eval_set=(test.drop(['term_id', 'client_id', 'gender'], axis=1), test['gender']),
     cat_features=cat_features
 )
-y_pred = model.predict_proba(test.drop(['term_id', 'client_id', 'gender'], axis=1))[:, 1]
-auc = roc_auc_score (test['gender'], y_pred)
-print(auc)
+
+# from sklearn.metrics import roc_auc_score
+# y_pred = model.predict_proba(test.drop(['term_id', 'client_id', 'gender'], axis=1))[:, 1]
+# auc = roc_auc_score (test['gender'], y_pred)
+# print(auc)
+
+
+
+test['probability'] = model.predict_proba(test.drop(['term_id', 'client_id'], axis=1))[:, 1]
+submission= test[['client_id', 'probability']]
+
+submission.to_csv('result.csv')
+
+
+
+
+# model = CatBoostClassifier(
+#     iterations=150,
+#     random_seed=63,
+#     custom_loss='AUC',
+#     eval_metric='AUC',
+#     verbose=20,
+#     od_type='Iter',
+#     od_wait=70,
+#     use_best_model=True
+# )
+# model.fit(
+#     train.drop(['term_id', 'client_id', 'gender'], axis=1), train['gender'],
+#     eval_set=(test.drop(['term_id', 'client_id', 'gender'], axis=1), test['gender']),
+#     cat_features=cat_features
+# )
+# y_pred = model.predict_proba(test.drop(['term_id', 'client_id', 'gender'], axis=1))[:, 1]
+# auc = roc_auc_score (test['gender'], y_pred)
+# print(auc)
